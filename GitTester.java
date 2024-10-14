@@ -11,6 +11,7 @@ public class GitTester {
         File test = new File("testerFile.txt");
         String indexLine = (Git.sha1Generator(test) + " " + test.getName());
         String i = "git/index";
+        
 
         // testing initialization and repeated delete of repoMethod : passed
         Git.initGitRepoTesterMethod();
@@ -63,5 +64,21 @@ public class GitTester {
         }
         readHashFile.close();
         readTestFile.close();
+
+        Git.newCommit("hugh", "meow");
+
+
+        File testerDir = new File("dirry");
+        testerDir.mkdir();
+
+        File testerFileyFile = new File("dirry/testerFileyFile");
+        testerFileyFile.createNewFile();
+        
+        File testerDirDir = new File("dirry/dirdir");
+        testerDirDir.mkdir();
+
+        Git.addTree("dirry", "dirry");
+
+        Git.newCommit("hugh", "ooh ooh ahh ahh");
     }
 }

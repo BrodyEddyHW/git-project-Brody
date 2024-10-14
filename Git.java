@@ -1,21 +1,85 @@
 import java.io.*;
 import java.math.BigInteger;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
-public class Git {
+
+public class Git implements GitInterface{
+
     public static void main(String[] args) {
         // File git = new File("git");
         // File objects = new File("git/objects");
         // File index = new File("git/index");
     }
 
+    public interface GitInterface {
+
+        /**
+         * Stages a file for the next commit.
+         *
+         * @param filePath The path to the file to be staged.
+         */
+        public void stage(String filePath) {
+            File toBeStaged = new File(filePath);
+
+            if(toBeStaged.exists()) {
+                if (toBeStaged.isDirectory()) {
+                    addTree(filePath, toBeStaged.getName());
+                }
+                else {
+                    blobGenerator(toBeStaged);
+                }
+            }
+            else {
+                throw new FileNotFoundException();
+            }
+
+        }
+    
+        /**
+         * Creates a commit with the given author and message.
+         * It should capture the current state of the repository,
+         * update the HEAD, and return the commit hash.
+         *
+         * @param author  The name of the author making the commit.
+         * @param message The commit message describing the changes.
+         * @return The SHA1 hash of the new commit.
+         */
+        public String commit(String author, String message) {
+            newCommit(author, message);
+
+            BufferedReader br = new BufferedReader(new FileReader(new File("git/HEAD")));
+            String commitHash = br.readLine();
+            br.close();
+            return commitHash;
+        }
+    
+        /**
+         * EXTRA CREDIT: Checks out a specific commit given its hash.
+         * This should update the working directory to match the
+         * state of the repository at that commit.
+         *
+         * @param commitHash The SHA1 hash of the commit to check out.
+         */
+        void checkout(String commitHash);
+    }
+    
+
+
+
     public static void initializeGitRepoMethod() throws IOException {
         // creating pointers for files/directorys (does not actually create them)
         File git = new File("git");
         File objects = new File("git/objects");
         File index = new File("git/index");
+        File README = new File("git/README.md");
         // checking if they all exists
         if (git.exists() && objects.exists() && index.exists()) {
             System.out.println("Git Repository already exists");
@@ -31,13 +95,22 @@ public class Git {
         if (index.exists() == false) {
             index.createNewFile();
         }
+        if(README.exists() == false) {
+            README.createNewFile();
+        }
+
+        blobGenerator(README);
+
+        newCommit("Example", "Initial commit");
     }
+
 
     // checks if files exist and then delete them to continue tester
     public static void initGitRepoTesterMethod() throws IOException {
         File git = new File("git");
         File objects = new File("git/objects");
         File index = new File("git/index");
+        File head = new File("git/HEAD");
         if (git.exists() == true) {
             git.delete();
         }
@@ -47,6 +120,9 @@ public class Git {
         if (index.exists() == true) {
             index.delete();
         }
+        if(head.exists() == true) {
+            head.delete();
+        } 
     }
 
     // sha-1 function from https://www.geeksforgeeks.org/sha-1-hash-in-java/ and
@@ -110,7 +186,6 @@ public class Git {
 
         // points and creates new file with hash as name
         File hashFile = new File("git/objects/" + shaFileName);
-        hashFile.createNewFile();
 
         // copy file contents to hashNamedFile
         copyContent(blobFileInput, hashFile);
@@ -211,4 +286,132 @@ public class Git {
             out.close();
         }
     }
+
+    public static void newCommit(String author, String message) throws IOException{
+
+        boolean isInitialCommit = false;
+        File HEAD = new File("git/HEAD");
+        File commitFile = new File("git/objects/commits");
+
+
+        String[] commitArr = new String[5];
+
+        String currHeadHash;
+        if(!HEAD.createNewFile()) {
+            
+            currHeadHash = Files.readString(Paths.get(HEAD.getPath())).trim();
+            List<String> lines = Files.readAllLines(Paths.get("git/objects/" + currHeadHash));
+            for(int i = 0; i < commitArr.length; i++) {
+                String[] splitty = lines.get(i).split("\\s+");
+                if(splitty.length < 2) {
+                    commitArr[i] = "";
+                }
+                else {
+                    commitArr[i] = splitty[1];
+                }
+            }
+            
+        }
+        else {
+            currHeadHash = "";
+            isInitialCommit = true;
+            Arrays.fill(commitArr, "");
+            
+        }
+
+
+        String previousTreeHash = commitArr[1];
+
+        File wDir = new File("git/objects/workingDirectory");
+        File index = new File("git/index");
+        
+
+        String indexText = Files.readString(Paths.get(index.getPath()));
+
+        BufferedWriter bw = new BufferedWriter(new FileWriter(wDir));
+
+        bw.append(indexText);
+
+        bw.close();
+
+        String wDirHash;
+
+        if(!isInitialCommit) {
+            wDirHash = fillWorkingDir(wDir.getName(), previousTreeHash);
+        }
+        else {
+            wDirHash = sha1Generator(wDir);
+        }
+        Path wDirPath = Paths.get(wDir.getPath());
+        
+        if(new File("git/objects" + wDirHash).exists()) {
+            wDir.delete();
+        }
+        else {
+            Files.move(wDirPath, wDirPath.resolveSibling(wDirHash));
+        }
+        
+        StringBuilder commitText = new StringBuilder();
+
+        commitText.append("tree: " + wDirHash + "\n");
+        if(isInitialCommit) {
+            commitText.append("parent: \n");
+        }
+        else {
+            commitText.append("parent: " + currHeadHash + "\n");
+        }
+        commitText.append("author: " + author + "\n");
+
+        LocalDate dateUnformatted = LocalDate.now();
+        DateTimeFormatter  formatter =  DateTimeFormatter.ofPattern("MMMM d, yyyy");
+
+        commitText.append("date: " + dateUnformatted.format(formatter) + "\n");
+        commitText.append("message: " + message);
+
+        commitFile.createNewFile();
+        
+        BufferedWriter commitWriter = new BufferedWriter(new FileWriter(commitFile));
+        commitWriter.append(commitText.toString());
+        commitWriter.close();
+
+        String currCommitHash = sha1Generator(commitFile);
+
+        Path currCommitPath = Paths.get(commitFile.getPath());
+        Files.move(currCommitPath, currCommitPath.resolveSibling(currCommitHash));
+
+        BufferedWriter headWriter = new BufferedWriter(new FileWriter(HEAD));
+
+        headWriter.append(currCommitHash);
+
+        headWriter.close();
+    }
+
+
+    public static String fillWorkingDir(String wDirName, String prevWDirName) throws IOException {
+
+
+        File wDir = new File("git/objects/" + wDirName);
+        File prevWDir = new File("git/objects/" + prevWDirName);
+
+        BufferedReader br = new BufferedReader(new FileReader(prevWDir));
+
+        char[] prevWDirCArr = new char[(int) prevWDir.length()];
+        
+        br.read(prevWDirCArr);
+
+        
+
+        br.close();
+
+        BufferedWriter bw = new BufferedWriter(new FileWriter(wDir));
+
+        bw.append(prevWDirName);
+
+        bw.close();
+        
+        String hashedName = sha1Generator(wDir);
+
+        return hashedName;
+    }
+
 }
